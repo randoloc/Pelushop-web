@@ -1,6 +1,3 @@
-export const runtime = "edge";
-export const dynamic = "force-dynamic";
-
 import { getNegocios } from "@/lib/supabase";
 import { ShopCard } from "./components/ShopCard";
 
