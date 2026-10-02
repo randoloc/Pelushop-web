@@ -24,6 +24,15 @@ type Servicio = {
   imagenes: string[];
 };
 type Categoria = { id: string; nombre: string };
+type Horario = {
+  id: string;
+  dia_semana: number;
+  hora_inicio: string;
+  hora_fin: string;
+  activo: boolean;
+};
+
+const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -32,8 +41,9 @@ export default function AdminDashboard() {
   const [citas, setCitas] = useState<Cita[]>([]);
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [horarios, setHorarios] = useState<Horario[]>([]);
   const [editando, setEditando] = useState<string | null>(null);
-  const [tab, setTab] = useState<"citas" | "servicios">("citas");
+  const [tab, setTab] = useState<"citas" | "servicios" | "horario">("citas");
 
   useEffect(() => {
     cargarTodo();
@@ -60,28 +70,72 @@ export default function AdminDashboard() {
     const negocioData = adminRow.negocios as unknown as Negocio;
     setNegocio(negocioData);
 
-    const [{ data: citasData }, { data: serviciosData }, { data: categoriasData }] =
-      await Promise.all([
-        supabase
-          .from("citas")
-          .select("id, cliente_nombre, cliente_telefono, fecha, hora, estado, total")
-          .eq("negocio_id", negocioData.id)
-          .order("fecha", { ascending: true }),
-        supabase
-          .from("servicios")
-          .select("id, nombre, precio, duracion_minutos, categoria_id, imagenes")
-          .eq("negocio_id", negocioData.id),
-        supabase
-          .from("categorias_servicio")
-          .select("id, nombre")
-          .eq("negocio_id", negocioData.id)
-          .order("orden"),
-      ]);
+    const [
+      { data: citasData },
+      { data: serviciosData },
+      { data: categoriasData },
+      { data: horariosData },
+    ] = await Promise.all([
+      supabase
+        .from("citas")
+        .select("id, cliente_nombre, cliente_telefono, fecha, hora, estado, total")
+        .eq("negocio_id", negocioData.id)
+        .order("fecha", { ascending: true }),
+      supabase
+        .from("servicios")
+        .select("id, nombre, precio, duracion_minutos, categoria_id, imagenes")
+        .eq("negocio_id", negocioData.id),
+      supabase
+        .from("categorias_servicio")
+        .select("id, nombre")
+        .eq("negocio_id", negocioData.id)
+        .order("orden"),
+      supabase
+        .from("horarios_disponibilidad")
+        .select("id, dia_semana, hora_inicio, hora_fin, activo")
+        .eq("negocio_id", negocioData.id)
+        .order("dia_semana"),
+    ]);
 
     setCitas(citasData ?? []);
     setServicios(serviciosData ?? []);
     setCategorias(categoriasData ?? []);
+    setHorarios(horariosData ?? []);
     setCargando(false);
+  }
+
+  async function agregarHorario(form: FormData) {
+    if (!negocio) return;
+    const dia_semana = Number(form.get("dia_semana"));
+    const hora_inicio = form.get("hora_inicio") as string;
+    const hora_fin = form.get("hora_fin") as string;
+
+    const { data, error } = await supabase
+      .from("horarios_disponibilidad")
+      .insert({ negocio_id: negocio.id, dia_semana, hora_inicio, hora_fin })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setHorarios((prev) =>
+        [...prev, data].sort((a, b) => a.dia_semana - b.dia_semana),
+      );
+    }
+  }
+
+  async function toggleHorario(id: string, activo: boolean) {
+    await supabase
+      .from("horarios_disponibilidad")
+      .update({ activo: !activo })
+      .eq("id", id);
+    setHorarios((prev) =>
+      prev.map((h) => (h.id === id ? { ...h, activo: !activo } : h)),
+    );
+  }
+
+  async function eliminarHorario(id: string) {
+    await supabase.from("horarios_disponibilidad").delete().eq("id", id);
+    setHorarios((prev) => prev.filter((h) => h.id !== id));
   }
 
   async function actualizarEstado(citaId: string, estado: string) {
@@ -202,6 +256,9 @@ export default function AdminDashboard() {
           onClick={() => setTab("servicios")}
         >
           Servicios ({servicios.length})
+        </TabButton>
+        <TabButton activo={tab === "horario"} onClick={() => setTab("horario")}>
+          Horario
         </TabButton>
       </div>
 
@@ -389,6 +446,88 @@ export default function AdminDashboard() {
             />
             <button className="rounded-full border border-gold/50 px-4 py-2 text-sm text-gold">
               + Categoría
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tab === "horario" && (
+        <div className="mt-6 space-y-6">
+          <ul className="divide-y divide-surfaceBorder rounded-2xl border border-surfaceBorder bg-surface">
+            {horarios.length === 0 && (
+              <li className="p-6 text-center text-muted">
+                Todavía no definiste tu horario de atención.
+              </li>
+            )}
+            {horarios.map((h) => (
+              <li key={h.id} className="flex items-center justify-between p-4">
+                <div>
+                  <p className="font-medium">{DIAS[h.dia_semana]}</p>
+                  <p className="text-xs text-muted">
+                    {h.hora_inicio} – {h.hora_fin}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleHorario(h.id, h.activo)}
+                    className={`rounded-full px-3 py-1.5 text-xs ${
+                      h.activo
+                        ? "bg-gold-gradient font-bold text-base"
+                        : "border border-surfaceBorder text-muted"
+                    }`}
+                  >
+                    {h.activo ? "Activo" : "Inactivo"}
+                  </button>
+                  <button
+                    onClick={() => eliminarHorario(h.id)}
+                    className="text-xs text-danger"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <form
+            action={agregarHorario}
+            className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-surfaceBorder p-4"
+          >
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-muted">Día</span>
+              <select
+                name="dia_semana"
+                className="rounded-lg border border-surfaceBorder bg-base px-3 py-2 text-sm"
+              >
+                {DIAS.map((dia, i) => (
+                  <option key={dia} value={i}>
+                    {dia}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-muted">Desde</span>
+              <input
+                name="hora_inicio"
+                type="time"
+                required
+                defaultValue="09:00"
+                className="rounded-lg border border-surfaceBorder bg-base px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-muted">Hasta</span>
+              <input
+                name="hora_fin"
+                type="time"
+                required
+                defaultValue="18:00"
+                className="rounded-lg border border-surfaceBorder bg-base px-3 py-2 text-sm"
+              />
+            </label>
+            <button className="rounded-full bg-gold-gradient px-5 py-2 text-sm font-bold text-base">
+              Agregar
             </button>
           </form>
         </div>

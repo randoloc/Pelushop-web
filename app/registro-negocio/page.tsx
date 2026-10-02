@@ -16,32 +16,49 @@ function slugify(nombre: string) {
 
 export default function RegistroNegocioPage() {
   const router = useRouter();
-  const [paso, setPaso] = useState<1 | 2>(1);
+  const [paso, setPaso] = useState<1 | 2 | 3>(1);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [codigo, setCodigo] = useState("");
   const [nombreNegocio, setNombreNegocio] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
   const [logo, setLogo] = useState<File | null>(null);
 
-  async function crearCuenta(e: React.FormEvent) {
+  async function enviarCodigo(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setCargando(true);
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { error: otpError } = await supabase.auth.signInWithOtp({
       email,
-      password,
+      options: { shouldCreateUser: true },
     });
     setCargando(false);
-    if (signUpError) {
-      setError(signUpError.message);
+    if (otpError) {
+      setError(otpError.message);
       return;
     }
     setPaso(2);
+  }
+
+  async function verificarCodigo(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setCargando(true);
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: codigo,
+      type: "email",
+    });
+    setCargando(false);
+    if (verifyError) {
+      setError("Código incorrecto o vencido. Revisa tu correo e intenta de nuevo.");
+      return;
+    }
+    setPaso(3);
   }
 
   async function crearNegocio(e: React.FormEvent) {
@@ -79,16 +96,22 @@ export default function RegistroNegocioPage() {
     router.push(`/tienda/${slug}`);
   }
 
+  const titulos = {
+    1: "Crea tu cuenta",
+    2: "Verifica tu correo",
+    3: "Cuéntanos de tu negocio",
+  } as const;
+
+  const subtitulos = {
+    1: "Te enviaremos un código de 6 dígitos para confirmar que este correo es tuyo.",
+    2: `Escribe el código que enviamos a ${email}.`,
+    3: "Estos datos se mostrarán en tu página pública.",
+  } as const;
+
   return (
     <section className="mx-auto max-w-md px-6 py-16">
-      <h1 className="font-display text-3xl font-bold">
-        {paso === 1 ? "Crea tu cuenta" : "Cuéntanos de tu negocio"}
-      </h1>
-      <p className="mt-2 text-sm text-muted">
-        {paso === 1
-          ? "Con esta cuenta administrarás tu tienda digital."
-          : "Estos datos se mostrarán en tu página pública."}
-      </p>
+      <h1 className="font-display text-3xl font-bold">{titulos[paso]}</h1>
+      <p className="mt-2 text-sm text-muted">{subtitulos[paso]}</p>
 
       {error && (
         <p className="mt-4 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">
@@ -96,8 +119,8 @@ export default function RegistroNegocioPage() {
         </p>
       )}
 
-      {paso === 1 ? (
-        <form onSubmit={crearCuenta} className="mt-8 space-y-4">
+      {paso === 1 && (
+        <form onSubmit={enviarCodigo} className="mt-8 space-y-4">
           <Campo
             label="Correo electrónico"
             type="email"
@@ -105,17 +128,32 @@ export default function RegistroNegocioPage() {
             onChange={setEmail}
             required
           />
+          <Boton texto="Enviar código" cargando={cargando} />
+        </form>
+      )}
+
+      {paso === 2 && (
+        <form onSubmit={verificarCodigo} className="mt-8 space-y-4">
           <Campo
-            label="Contraseña"
-            type="password"
-            value={password}
-            onChange={setPassword}
+            label="Código de 6 dígitos"
+            type="text"
+            value={codigo}
+            onChange={setCodigo}
             required
             minLength={6}
           />
-          <Boton texto="Continuar" cargando={cargando} />
+          <Boton texto="Verificar" cargando={cargando} />
+          <button
+            type="button"
+            onClick={() => setPaso(1)}
+            className="w-full text-center text-xs text-muted"
+          >
+            Usar otro correo
+          </button>
         </form>
-      ) : (
+      )}
+
+      {paso === 3 && (
         <form onSubmit={crearNegocio} className="mt-8 space-y-4">
           <Campo
             label="Nombre del negocio"
